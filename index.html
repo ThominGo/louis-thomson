@@ -740,8 +740,11 @@ const BASE_CAM = [0.2,1.85,5.8]; // caméra de base Blender, origine du dégrad�
    THREE
    ========================================================= */
 const host = document.getElementById('stage');
-const renderer = new THREE.WebGLRenderer({ antialias:true, powerPreference:'high-performance' });
-renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+/* Qualité : densité de pixels plafonnée (les points gardent leur taille grâce à uPR),
+   pas d'anticrénelage sur écran Retina (inutile pour des points), GPU par défaut plutôt que la carte dédiée */
+const QUAL = { pr:Math.min(devicePixelRatio, isMobile() ? 1.75 : 1.5), min:1 };
+const renderer = new THREE.WebGLRenderer({ antialias:devicePixelRatio < 1.5, powerPreference:'default', stencil:false });
+renderer.setPixelRatio(QUAL.pr);
 renderer.outputEncoding = THREE.sRGBEncoding;
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
 renderer.toneMappingExposure = 1.05;
@@ -761,7 +764,7 @@ const camBase = new THREE.Vector3();
 scene.add(new THREE.HemisphereLight(0xffffff, 0x2a2a2a, 0.55));
 const key = new THREE.DirectionalLight(0xffffff, 1.4);
 key.position.set(1.5, 6, 3); key.castShadow = true;
-key.shadow.mapSize.set(2048, 2048);
+key.shadow.mapSize.set(1024, 1024);
 Object.assign(key.shadow.camera, { left:-6, right:6, top:6, bottom:-6, near:1, far:18 });
 key.shadow.bias = -0.0004; key.shadow.radius = 4;
 scene.add(key);
@@ -853,20 +856,13 @@ const curR = new THREE.Mesh(curtainGeo(), frontMat); curR.position.set(9.5, 0, C
 const pelmet = new THREE.Mesh(new THREE.BoxGeometry(20, 3, .3), makeMat({ color:0x4a120c, rough:1, sheen:0xb85a44 }));
 pelmet.position.set(0.2, 6.6, CUR_Z + .1);
 const overCanvas = document.getElementById('curtainLayer');
-const overR = new THREE.WebGLRenderer({ canvas:overCanvas, antialias:true, alpha:true });
-overR.setPixelRatio(Math.min(devicePixelRatio, 2));
-overR.outputEncoding = THREE.sRGBEncoding; overR.toneMapping = THREE.ACESFilmicToneMapping; overR.toneMappingExposure = 1.05;
-const overScene = new THREE.Scene();
-try { overScene.environment = new THREE.PMREMGenerator(overR).fromScene(new THREE.RoomEnvironment(), 0.04).texture; } catch(e){}
-overScene.add(new THREE.HemisphereLight(0xffffff, 0x2a2a2a, .7));
-const overKey = new THREE.DirectionalLight(0xffffff, 1.3); overKey.position.set(1.5, 6, 8); overScene.add(overKey);
-overScene.add(curL, curR, pelmet);
+// rideaux avant retirés : plus de second contexte WebGL (il tournait pour rien)
+if (overCanvas) overCanvas.remove();
 const curtain = { s:OPEN_S };   // rideaux retirés : la transition de langue se fait en points
 function setCurtain(){
   curL.scale.x = curtain.s; curR.scale.x = -curtain.s;
   const vis = curtain.s > OPEN_S + .005;
   curL.visible = curR.visible = pelmet.visible = vis;
-  overCanvas.classList.toggle('closing', curtain.s > .5);
 }
 setCurtain();
 
@@ -1611,7 +1607,6 @@ function frame(id){
 function resize(){
   renderer.setSize(innerWidth, innerHeight, false);
   sizeDof();
-  overR.setSize(innerWidth, innerHeight, false);
   camera.aspect = innerWidth / innerHeight;
   camera.fov = camera.aspect < 1 ? 50 : 40;
   camera.updateProjectionMatrix();
@@ -1935,8 +1930,10 @@ function placeHotspots(){
   for (const id in hsEls){
     anchors[VIEWS[id].hs].getWorldPosition(v3); v3.project(camera);
     const el = hsEls[id];
-    el.style.transform = `translate(${(v3.x*.5+.5)*innerWidth}px, ${(-v3.y*.5+.5)*innerHeight}px) translate(-50%, calc(-100% + 17px))`;
-    el.style.visibility = v3.z > 1 ? 'hidden' : 'visible';
+    const tr = `translate(${((v3.x*.5+.5)*innerWidth).toFixed(1)}px, ${((-v3.y*.5+.5)*innerHeight).toFixed(1)}px) translate(-50%, calc(-100% + 17px))`;
+    const vis = v3.z > 1 ? 'hidden' : 'visible';
+    if (el._tr !== tr) { el.style.transform = tr; el._tr = tr; }
+    if (el._vis !== vis) { el.style.visibility = vis; el._vis = vis; }
   }
 }
 
@@ -2478,8 +2475,25 @@ window.LTDebug = { trans(v, mode, dir = 0){ CLOUD.uTransMode.value = mode; CLOUD
 const mouse = { x:0, y:0, tx:0, ty:0 };
 addEventListener('pointermove', e => { mouse.tx = (e.clientX/innerWidth - .5); mouse.ty = (e.clientY/innerHeight - .5); });
 const clock = new THREE.Clock();
-let overDirty = false;
-renderer.setAnimationLoop(() => {
+/* Cadence : 60 i/s pendant une interaction ou une animation, 30 i/s au repos (même sur écran 120 Hz),
+   rien quand l'onglet ou la scène ne sont pas visibles. La densité de pixels baisse seule si l'ordinateur peine. */
+let lastInput = performance.now(), lastFrame = 0, perfAcc = 0, perfN = 0, onScreen = true;
+['pointermove','pointerdown','wheel','keydown','touchstart'].forEach(ev => addEventListener(ev, () => { lastInput = performance.now(); }, { passive:true }));
+try { new IntersectionObserver(es => { onScreen = es[0].isIntersecting; }).observe(canvas); } catch(e){}
+const busy = () => performance.now() - lastInput < 2500 || switching || gsap.isTweening(camBase) || gsap.isTweening(look) || gsap.isTweening(CLOUD.uTrans);
+function setPR(pr){
+  QUAL.pr = pr; renderer.setPixelRatio(pr); CLOUD.uPR.value = pr;
+  renderer.setSize(innerWidth, innerHeight, false); sizeDof();
+}
+renderer.setAnimationLoop(now => {
+  if (!onScreen || !simEl.hidden) return;   // simulateur ouvert : la scène de fond se met en pause
+  const act = busy(), gap = act ? 1000/62 : 1000/31;
+  if (now - lastFrame < gap) return;
+  const iv = now - lastFrame; lastFrame = now;
+  // mesure en interaction : si on tombe sous ~45 i/s, on allège la résolution d'un cran
+  if (act && iv < 200 && started) { perfAcc += iv; perfN++;
+    if (perfN >= 90) { if (perfAcc/perfN > 22 && QUAL.pr > QUAL.min) setPR(Math.max(QUAL.min, +(QUAL.pr - .25).toFixed(2))); perfAcc = perfN = 0; } }
+  else if (!act) { perfAcc = perfN = 0; }
   const dt = Math.min(clock.getDelta(), .05), t = clock.elapsedTime;
   TIME.value = t;
   mouse.x += (mouse.tx - mouse.x) * .05; mouse.y += (mouse.ty - mouse.y) * .05;
