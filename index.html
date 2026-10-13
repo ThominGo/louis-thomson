@@ -326,6 +326,9 @@ canvas.dotbg{position:absolute;inset:0;width:100%;height:100%;border-radius:inhe
 .mm-cr a{color:inherit}
 /* Nuage de points : voile orange et brume plus légers pour laisser lire les points */
 body.points .grade{opacity:.6}
+/* Rendu profondeur : fond uni de la palette, sans voile ni brume */
+body.depth .grade,body.depth .haze{opacity:0!important}
+body.depth{background:var(--depth-bg,#da593c)}
 /* Variantes de fond (mêmes couleurs : noir, orange Figma) */
 body[data-bg="halo"] .grade{background:radial-gradient(120% 75% at 50% 100%,var(--orange) 0%,rgba(218,89,60,.45) 38%,#000 78%)}
 body[data-bg="horizon"] .grade{background:linear-gradient(to top,#000 0%,var(--orange) 26%,rgba(218,89,60,.35) 46%,#000 72%)}
@@ -501,7 +504,7 @@ const layoutFor = () => (innerWidth <= 760 && innerHeight > innerWidth) ? 'm' : 
 const EMBED = location.hash === '#embed';           // page chargée dans le simulateur iPhone
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 /* Réglages des effets (panneau Réglages, enregistrables pour tous les visiteurs) */
-const FX_DEFAULT = {"density":1,"mDensity":0.5,"mSize":1.3,"bg":"vertical","floor":2,"back":1,"far":45,"dark":0.01,"radius":0.2,"push":0.2,"grow":1.4,"tint":0.33,"pulseAmp":0.1,"pulseSpeed":2.4,"pulseDecay":1.8,"size":1.1,"breath":1,"ambient":0.26,"beams":1.7,"cta":"blanc","trans":"balayage"};
+const FX_DEFAULT = {"render":"points","dpal":"blanc","dof":7.5,"grain":0.09,"density":1,"mDensity":0.5,"mSize":1.35,"bg":"vertical","floor":2,"back":1,"far":45,"dark":0.01,"radius":0.2,"push":0.2,"grow":1.4,"tint":0.33,"pulseAmp":0.1,"pulseSpeed":2.4,"pulseDecay":1.8,"size":1.1,"breath":1,"ambient":0.26,"beams":1.7,"cta":"blanc","trans":"balayage"};
 let FX = { ...FX_DEFAULT };
 let FX_LOCAL = null;
 try { FX_LOCAL = JSON.parse(store.get('lt-fx') || 'null'); } catch(e){}
@@ -830,6 +833,7 @@ const MAT = {
   floor: makeMat({ pat:2, c1:0xa9a49d, c2:0xffffff, rough:.62 }),
 };
 const roleMat = (m, hover) => {
+  if (renderMode === 'depth') return hover ? DEPTH_MAT_HI : DEPTH_MAT;
   const n = m.userData.srcMat;
   if (n === 'LT_Curtain') return MAT.curtain;
   if (n === 'LT_Floor') return MAT.floor;
@@ -978,7 +982,8 @@ dayNightBtn.addEventListener('click', () => { audio(); setNight(!night); });
 /* =========================================================
    NUAGE DE POINTS : la scène échantillonnée en points, repoussés par le curseur
    ========================================================= */
-let renderMode = 'points';   // nuage de points validé
+const modeOf = r => r === 'matiere' ? 'solid' : r === 'profondeur' ? 'depth' : 'points';
+let renderMode = modeOf(FX.render);   // « Rendu » dans Réglages
 const HIDDEN = new THREE.MeshBasicMaterial({ visible:false });
 const CLOUD = {
   uTime: TIME,
@@ -1153,6 +1158,7 @@ const FLOOR_GAIN = { value:FX.floor }, BACK_GAIN = { value:FX.back };
 const floorMat = makeCloudMat({ value:0 }, { gain:FLOOR_GAIN });
 const backMat = makeCloudMat({ value:0 }, { gain:BACK_GAIN });
 const clouds = [], cloudTargets = [], allMeshes = [], rigMeshes = [];
+let floorPts = null;
 const hash1 = n => { const s = Math.sin(n*127.1 + 311.7)*43758.5453; return s - Math.floor(s); };
 
 /* Aire de chaque triangle en coordonnées monde, pour une densité uniforme */
@@ -1248,7 +1254,7 @@ function buildClouds(root){
       add(m, samplePoints(m, A, n, G.tone, G.tv), mat);
     });
   });
-  if (floorMesh) add(floorMesh, sampleFloor(floorMesh, Math.round(layout === 'm' ? 90000 : 120000)), floorMat);
+  if (floorMesh) floorPts = add(floorMesh, sampleFloor(floorMesh, Math.round(layout === 'm' ? 90000 : 120000)), floorMat);
   // projecteurs : boîtier, lyre et lentille (qui s'allume)
   spots.forEach(s => {
     s.g.updateMatrixWorld(true);
@@ -1262,7 +1268,10 @@ function buildClouds(root){
 }
 function applyMode(m){
   renderMode = m; store.set('lt-mode', m);
-  const pts = m === 'points';
+  const pts = m === 'points', depth = m === 'depth';
+  scene.background = depth ? new THREE.Color((DPAL[FX.dpal] || DPAL.orange).bg) : BG_POINTS;
+  document.body.classList.toggle('depth', depth);
+  spots.forEach(s => { s.g.visible = !depth; });
   allMeshes.forEach(o => { o.material = pts ? HIDDEN : roleMat(o, !!o.userData.hi); });
   clouds.forEach(p => p.visible = pts);
   spots.forEach(s => { s.can.material = s.yoke.material = pts ? HIDDEN : (s.hi ? canMatHi : canMat); s.lens.material = pts ? HIDDEN : s.lensM; s.beam.visible = !pts; });
@@ -1270,6 +1279,7 @@ function applyMode(m){
   pelmet.material = pts ? HIDDEN : pelmetMat;
   key.castShadow = !pts;
   document.body.classList.toggle('points', pts);
+  if (typeof applyDensity === 'function') applyDensity();
   document.querySelectorAll('[data-mode]').forEach(b => b.setAttribute('aria-pressed', b.dataset.mode === m ? 'true' : 'false'));
 }
 document.querySelectorAll('[data-mode]').forEach(b => b.addEventListener('click', () => applyMode(b.dataset.mode)));
@@ -1352,9 +1362,119 @@ function applyLayout(L){
     else r.position.copy(r.userData.home);
   });
   CLOUD.uSpan.value = L === 'm' ? 2.2 : 4.6;
-  CLOUD.uCenterZ.value = L === 'm' ? -2.7 : -1.5;
+  { const B = mobileBounds(); CLOUD.uCenterZ.value = L === 'm' ? (B.z0 + B.z1)/2 : -1.5; }
 }
 function cloudPulse(p){ CLOUD.uPulse.value.set(p.x, p.y, p.z, TIME.value); }
+
+/* =========================================================
+   RENDU « PROFONDEUR » : carte de profondeur en bichromie, flou de mise au point, grain
+   (références : silhouettes en dégradé de profondeur sur fond uni)
+   ========================================================= */
+const DPAL = {
+  orange:  { bg:0xda593c, c0:0x070d24, c1:0x13286a, c2:0x3f6fe6 },   // bleu nuit sur orange
+  gris:    { bg:0x090909, c0:0x161616, c1:0x7a7a7a, c2:0xf4f4f2 },   // carte de profondeur noir et blanc
+  blanc:   { bg:0xf6f6f4, c0:0xf0d6cc, c1:0xe0795c, c2:0x7d2412 },   // orange sur blanc cassé
+  vert:    { bg:0xf4f7f5, c0:0xd6eadf, c1:0x48a27a, c2:0x15503a },   // vert sur blanc
+  jaune:   { bg:0xe6ee4a, c0:0xf3c1ea, c1:0xe171cd, c2:0xa83b93 },   // rose sur jaune
+};
+const DEPTH_U = {
+  uDNear:{ value:3 }, uDFar:{ value:12 },
+  uC0:{ value:new THREE.Color() }, uC1:{ value:new THREE.Color() }, uC2:{ value:new THREE.Color() },
+};
+function makeDepthMat(hover){
+  return new THREE.ShaderMaterial({
+    uniforms:{ ...DEPTH_U, uHover:{ value:hover } },
+    vertexShader:`varying float vZ; varying vec3 vN; varying vec3 vV;
+      void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); vZ = -mv.z; vN = normalize(normalMatrix * normal); vV = normalize(-mv.xyz); gl_Position = projectionMatrix * mv; }`,
+    fragmentShader:`uniform float uDNear, uDFar, uHover; uniform vec3 uC0, uC1, uC2; varying float vZ; varying vec3 vN; varying vec3 vV;
+      void main(){
+        float g = 1.0 - smoothstep(uDNear, uDFar, vZ);                        // proche = 1
+        float fr = pow(1.0 - abs(dot(normalize(vN), normalize(vV))), 2.0);    // liseré sur les bords
+        float t = clamp(g*.82 + fr*.32 + uHover*.18, 0., 1.);
+        vec3 col = t < .5 ? mix(uC0, uC1, t*2.0) : mix(uC1, uC2, (t - .5)*2.0);
+        gl_FragColor = vec4(col, 1.0);
+      }`,
+  });
+}
+const DEPTH_MAT = makeDepthMat(0), DEPTH_MAT_HI = makeDepthMat(1);
+// cible de rendu avec profondeur, puis passe plein écran : flou de mise au point + grain
+let dofRT = null;
+function sizeDof(){
+  if (!dofRT) return;
+  const pr = renderer.getPixelRatio();
+  dofRT.setSize(Math.round(innerWidth*pr), Math.round(innerHeight*pr));
+  DOF_U.uRes.value.set(innerWidth*pr, innerHeight*pr);
+}
+const DOF_U = {
+  tColor:{ value:null }, tDepth:{ value:null }, uRes:{ value:new THREE.Vector2(1, 1) },
+  uCamNear:{ value:camera.near }, uCamFar:{ value:camera.far }, uFocus:{ value:8 }, uRange:{ value:3 },
+  uMaxBlur:{ value:FX.dof }, uGrain:{ value:FX.grain }, uTime:TIME, uBg:{ value:new THREE.Color() },
+};
+const dofScene = new THREE.Scene(), dofCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+dofScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({
+  uniforms:DOF_U, depthTest:false, depthWrite:false,
+  vertexShader:'varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0., 1.); }',
+  fragmentShader:`uniform sampler2D tColor, tDepth; uniform vec2 uRes; uniform float uCamNear, uCamFar, uFocus, uRange, uMaxBlur, uGrain, uTime;
+    varying vec2 vUv;
+    float linZ(float d){ float z = d*2.0 - 1.0; return 2.0*uCamNear*uCamFar / (uCamFar + uCamNear - z*(uCamFar - uCamNear)); }
+    float coc(float z){ return clamp(abs(z - uFocus)/uRange, 0., 1.) * uMaxBlur; }
+    float rnd(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+    void main(){
+      float z = linZ(texture2D(tDepth, vUv).x);
+      float c = coc(z);
+      vec3 acc = texture2D(tColor, vUv).rgb; float ws = 1.0;
+      float rot = rnd(vUv*uRes) * 6.2832;
+      for (int i = 1; i < 36; i++){
+        float fi = float(i);
+        float a = fi*2.39996 + rot, r = sqrt(fi/36.0) * c;
+        vec2 uv2 = vUv + vec2(cos(a), sin(a)) * r / uRes;
+        float zs = linZ(texture2D(tDepth, uv2).x);
+        float w = zs < z ? smoothstep(0., 1.5, coc(zs)) : 1.0;   // un premier plan net ne bave pas sur l'arrière
+        acc += texture2D(tColor, uv2).rgb * w; ws += w;
+      }
+      vec3 col = acc / ws;
+      col += (rnd(vUv*uRes + fract(uTime)*91.7) - .5) * uGrain;
+      gl_FragColor = vec4(col, 1.0);
+    }`,
+})));
+const BG_POINTS = new THREE.Color(0x070707);
+const dofFocus = { v:8 };
+function applyDepthPalette(){
+  const P = DPAL[FX.dpal] || DPAL.orange;
+  DEPTH_U.uC0.value.setHex(P.c0); DEPTH_U.uC1.value.setHex(P.c1); DEPTH_U.uC2.value.setHex(P.c2);
+  if (renderMode === 'depth') scene.background = new THREE.Color(P.bg);
+  document.body.style.setProperty('--depth-bg', '#' + new THREE.Color(P.bg).getHexString());
+}
+function renderDepth(){
+  if (!dofRT) {
+    dofRT = new THREE.WebGLRenderTarget(1, 1, { depthTexture:new THREE.DepthTexture(), depthBuffer:true });
+    dofRT.depthTexture.type = THREE.UnsignedIntType;
+    DOF_U.tColor.value = dofRT.texture; DOF_U.tDepth.value = dofRT.depthTexture;
+    sizeDof();
+  }
+  // mise au point : sur l'objet sous le curseur, sinon sur le point visé par la caméra
+  const camDist = camera.position.distanceTo(look);
+  let target = camDist;
+  if (depthHitDist > 0) target = depthHitDist;
+  dofFocus.v += (target - dofFocus.v) * .08;
+  DOF_U.uFocus.value = dofFocus.v; DOF_U.uRange.value = Math.max(1.2, camDist*.28);
+  DEPTH_U.uDNear.value = camDist - 2.2; DEPTH_U.uDFar.value = camDist + 5.5;
+  renderer.setRenderTarget(dofRT);
+  renderer.render(scene, camera);
+  renderer.setRenderTarget(null);
+  renderer.render(dofScene, dofCam);
+}
+let depthHitDist = -1, needDepthPick = false, dXY = [0, 0];
+canvas.addEventListener('pointermove', e => { dXY = [e.clientX, e.clientY]; needDepthPick = true; });
+canvas.addEventListener('pointerleave', () => { depthHitDist = -1; });
+function depthPick(){
+  if (renderMode !== 'depth' || !needDepthPick || !started) return;
+  needDepthPick = false;
+  ndc.set((dXY[0]/innerWidth)*2 - 1, -(dXY[1]/innerHeight)*2 + 1);
+  ray.setFromCamera(ndc, camera);
+  const h = ray.intersectObjects(pickables, false)[0];
+  depthHitDist = h ? h.distance : -1;
+}
 
 /* ---------- Chargement ---------- */
 const anchors = {}, instruments = [], bodies = [];
@@ -1464,10 +1584,21 @@ function region(id){
 function viewFor(id){
   const V = VIEWS[id];
   if (layout !== 'm') return V;
-  if (id === 'home') return { t:[0,1.05,-2.75], eye:[0,3.4,6], hw:1.95, hh:3.0 };
+  if (id === 'home') {
+    // cadrage d'accueil calculé sur l'emprise réelle de la scène mobile (layout_mobile.json)
+    const B = mobileBounds();
+    const e = new THREE.Vector3(0, 3.4, 6).normalize();
+    return { t:[(B.x0 + B.x1)/2, 1.0, (B.z0 + B.z1)/2], eye:[0, 3.4, 6], hw:Math.max(1.95, (B.x1 - B.x0)/2 + .35), hh:((B.z1 - B.z0 + 1.2)*e.y + 2.4)/2 };
+  }
   const a = anchors[V.hs];
   const t = a ? [a.position.x, a.position.y - .4, a.position.z] : V.t;
   return { t, eye:[0.25,2.5,2.3], hw:V.mhw || V.hw, hh:V.mhh || V.hh };   // en plongée
+}
+function mobileBounds(){
+  const pts = LAYOUT_M && LAYOUT_M.instruments ? Object.values(LAYOUT_M.instruments).map(j => j.p) : null;
+  if (!pts || !pts.length) return { x0:-1.8, x1:1.8, z0:-6.2, z1:1.0 };
+  const xs = pts.map(p => p[0]), zs = pts.map(p => p[2]);
+  return { x0:Math.min(...xs) - .6, x1:Math.max(...xs) + .6, z0:Math.min(...zs) - .6, z1:Math.max(...zs) + .6 };
 }
 function frame(id){
   const V = viewFor(id), R = region(id);
@@ -1483,6 +1614,7 @@ function frame(id){
 }
 function resize(){
   renderer.setSize(innerWidth, innerHeight, false);
+  sizeDof();
   overR.setSize(innerWidth, innerHeight, false);
   camera.aspect = innerWidth / innerHeight;
   camera.fov = camera.aspect < 1 ? 50 : 40;
@@ -1701,7 +1833,7 @@ function setHover(target){
 }
 function setHi(t, on){
   if (t.isSpot) { t.hi = on; if (renderMode === 'solid') [t.can, t.yoke].forEach(m => m.material = on ? canMatHi : canMat); gsap.to(t.hoverU, { value:on ? 1 : 0, duration:.3 }); return; }
-  t.meshes.forEach(m => { m.userData.hi = on; if (renderMode === 'solid') m.material = roleMat(m, on); });
+  t.meshes.forEach(m => { m.userData.hi = on; if (renderMode !== 'points') m.material = roleMat(m, on); });
   if (t.hoverU) gsap.to(t.hoverU, { value:on ? 1 : 0, duration:.3 });
 }
 /* Le rayon est aussi testé contre le plan des lames de chaque clavier : entre deux lames,
@@ -1990,7 +2122,9 @@ function applyFX(){
   CLOUD.uSize.value = FX.size; CLOUD.uJit.value = reduce ? 0 : FX.breath; CLOUD.uAmbient.value = FX.ambient;
   BEAM_U.uBeams.value = FX.beams;
   CLOUD.uDevMul.value = isMobile() ? FX.mSize : 1;
+  { const want = modeOf(FX.render); if (allMeshes.length && want !== renderMode) applyMode(want); else if (!allMeshes.length) renderMode = want; }
   applyDensity();
+  DOF_U.uMaxBlur.value = FX.dof; DOF_U.uGrain.value = FX.grain; applyDepthPalette();
   document.body.dataset.bg = FX.bg;
   FLOOR_GAIN.value = FX.floor; BACK_GAIN.value = FX.back; CLOUD.uFar.value = FX.far; CLOUD.uMax.value = FX.dark;
   if (!CTA_OPTS.some(o => o[0] === FX.cta)) FX.cta = 'blanc';
@@ -2002,6 +2136,12 @@ const relief = { on:false, items:[], raf:0, mx:-999, my:-999 };
 function applyDensity(){
   const d = Math.max(.05, Math.min(1, isMobile() ? FX.mDensity : FX.density));
   clouds.forEach(p => { if (p.userData.count) p.geometry.setDrawRange(0, Math.max(1, Math.round(p.userData.count*d))); });
+  if (floorPts) floorPts.visible = renderMode === 'points' && layout !== 'm';   // pas de parquet en points sur téléphone
+  // décor : masqué en rendu profondeur (fond uni) ; rideaux du fond retirés sur téléphone
+  allMeshes.forEach(m => {
+    if (!/Floor|Wall|Curtain|LightRig/.test(m.name)) return;
+    m.visible = renderMode !== 'depth' && !(layout === 'm' && /Curtain/.test(m.name));
+  });
 }
 function setupRelief(on){
   relief.on = on;
@@ -2074,6 +2214,8 @@ const FX_SPEC = [
   ]],
 ];
 const CTA_OPTS = [['blanc', 'Blanc'], ['billes', 'Billes 3D claires'], ['billes-sombres', 'Billes 3D sombres'], ['relief', 'Relief animé (réagit au curseur)']];
+const RENDER_OPTS = [['points', 'Nuage de points'], ['matiere', 'Matière blanche (maquette Figma)'], ['profondeur', 'Profondeur + flou (références)']];
+const DPAL_OPTS = [['orange', 'Bleu nuit sur orange'], ['gris', 'Noir et blanc'], ['blanc', 'Orange sur blanc'], ['vert', 'Vert sur blanc'], ['jaune', 'Rose sur jaune']];
 const BG_OPTS = [['vertical', 'Vertical (actuel)'], ['halo', 'Halo au sol'], ['horizon', 'Bande d’horizon'], ['contrejour', 'Contre-jour'], ['diagonale', 'Diagonale'], ['trame', 'Dégradé en points']];
 const TRANS_OPTS = [['balayage', 'Balayage'], ['dispersion', 'Dispersion'], ['chute', 'Chute'], ['tourbillon', 'Tourbillon']];
 const devEl = document.getElementById('dev'), devBody = document.getElementById('devBody'), devStatus = document.getElementById('devStatus');
@@ -2081,6 +2223,10 @@ function fmtFx(v, step){ return (+v).toFixed(step < .1 ? 2 : 1); }
 function buildDev(){
   devBody.innerHTML = FX_SPEC.map(([title, rows]) => `<fieldset><legend>${title}</legend>${rows.map(([k, label, min, max, step, unit]) =>
     `<label class="sl"><span>${label}<output id="o_${k}">${fmtFx(FX[k], step)}${unit}</output></span><input type="range" id="fx_${k}" data-k="${k}" min="${min}" max="${max}" step="${step}" value="${FX[k]}"></label>`).join('')}</fieldset>`).join('') +
+    `<fieldset><legend>Rendu</legend><select id="fx_render" data-k="render">${RENDER_OPTS.map(([v, l]) => `<option value="${v}"${FX.render === v ? ' selected' : ''}>${l}</option>`).join('')}</select></fieldset>` +
+    `<fieldset><legend>Rendu profondeur</legend><select id="fx_dpal" data-k="dpal">${DPAL_OPTS.map(([v, l]) => `<option value="${v}"${FX.dpal === v ? ' selected' : ''}>${l}</option>`).join('')}</select>
+      <label class="sl"><span>Flou de profondeur<output id="o_dof">${fmtFx(FX.dof, .5)} px</output></span><input type="range" id="fx_dof" data-k="dof" min="0" max="40" step=".5" value="${FX.dof}"></label>
+      <label class="sl"><span>Grain<output id="o_grain">${fmtFx(FX.grain, .01)}</output></span><input type="range" id="fx_grain" data-k="grain" min="0" max=".4" step=".01" value="${FX.grain}"></label></fieldset>` +
     `<fieldset><legend>Fond</legend><select id="fx_bg" data-k="bg">${BG_OPTS.map(([v, l]) => `<option value="${v}"${FX.bg === v ? ' selected' : ''}>${l}</option>`).join('')}</select></fieldset>` +
     `<fieldset><legend>Boutons</legend><select id="fx_cta" data-k="cta">${CTA_OPTS.map(([v, l]) => `<option value="${v}"${FX.cta === v ? ' selected' : ''}>${l}</option>`).join('')}</select></fieldset>` +
     `<fieldset><legend>Transition FR / EN</legend><div class="dev-row"><select id="fx_trans" data-k="trans">${TRANS_OPTS.map(([v, l]) => `<option value="${v}"${FX.trans === v ? ' selected' : ''}>${l}</option>`).join('')}</select><button type="button" id="transTest">Tester</button></div></fieldset>`;
@@ -2089,7 +2235,7 @@ function buildDev(){
 devBody.addEventListener('input', e => {
   const k = e.target.dataset.k; if (!k) return;
   FX[k] = e.target.type === 'range' ? +e.target.value : e.target.value;
-  if (e.target.type === 'range') { const spec = FX_SPEC.flatMap(s => s[1]).find(r => r[0] === k); document.getElementById('o_' + k).textContent = fmtFx(FX[k], spec[4]) + spec[5]; }
+  if (e.target.type === 'range') { const spec = FX_SPEC.flatMap(s => s[1]).find(r => r[0] === k) || [k, '', 0, 0, +e.target.step, k === 'dof' ? ' px' : '']; document.getElementById('o_' + k).textContent = fmtFx(FX[k], spec[4]) + spec[5]; }
   applyFX();
   store.set('lt-fx', JSON.stringify(FX));
   devStatus.textContent = 'Modifié sur cet appareil, pas encore enregistré pour tous.';
@@ -2345,7 +2491,8 @@ renderer.setAnimationLoop(() => {
   }
   hoverStep();
   cloudStep();
-  renderer.render(scene, camera);
+  depthPick();
+  if (renderMode === 'depth') renderDepth(); else renderer.render(scene, camera);
   placeHotspots();
 });
 
