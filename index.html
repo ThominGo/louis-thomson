@@ -1570,7 +1570,7 @@ const UP = new THREE.Vector3(0,1,0);
 function region(id){
   const Wd = innerWidth, Hd = innerHeight;
   if (id === 'home') return { x0:-.96, x1:.96, y0:-1 + 2*(isMobile()? 84 : 70)/Hd, y1:1 - 2*(isMobile()? 76 : 72)/Hd };
-  if (isMobile()) { const sheet = Hd*.8; return { x0:-.92, x1:.92, y0:-1 + 2*(sheet+12)/Hd, y1:1 - 2*78/Hd }; }
+  if (isMobile()) { const sheet = Math.min(Hd*.6, 600); return { x0:-.92, x1:.92, y0:-1 + 2*(sheet+16)/Hd, y1:1 - 2*96/Hd }; }
   const pw = Math.min(633, Wd*.46);
   return { x0:-1 + 48/Wd, x1:1 - 2*(pw+24)/Wd, y0:-1 + 2*70/Hd, y1:1 - 2*80/Hd };
 }
