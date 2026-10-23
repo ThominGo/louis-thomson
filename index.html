@@ -305,7 +305,8 @@ body[data-bg="trame"] .grade{background:linear-gradient(to top,var(--orange) 8%,
   .pill{gap:10px;padding:8px 12px}
   .pill button{font-size:14px}
   .panel{top:auto;height:80%;height:80dvh;width:100%}
-  .sheet{transform:translateY(calc(100% + 32px));padding:20px}
+  .panel{padding:0}
+  .sheet{transform:translateY(calc(100% + 32px));padding:20px 20px calc(20px + env(safe-area-inset-bottom,0px));border-radius:8px 8px 0 0;border-left:0}
   .row .c1{width:72px}
   .row .c3{width:auto;max-width:42%}
   .cols{padding-left:0}
