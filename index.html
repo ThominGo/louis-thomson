@@ -96,7 +96,7 @@ button{font-family:inherit}
 .panel{position:fixed;z-index:15;top:55px;right:0;bottom:0;width:min(633px,46vw);padding:16px;box-sizing:border-box;pointer-events:none}
 .sheet{pointer-events:auto;height:100%;box-sizing:border-box;padding:24px;border-radius:8px;border-left:1px solid var(--line);background:var(--glass);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px);display:flex;flex-direction:column;gap:24px;overflow:hidden;
   transform:translateX(calc(100% + 32px));transition:transform .8s cubic-bezier(.7,0,.2,1)}
-.panel.open .sheet{transform:none}
+.panel.open .sheet{transform:none;transition-delay:.5s}   /* la caméra part d'abord, la pop-in suit */
 .top{display:flex;justify-content:flex-end;align-items:center}
 .close{all:unset;cursor:pointer;display:flex;align-items:center;gap:8px;font-size:16px;line-height:1.2}
 .close:hover{color:var(--orange)}
