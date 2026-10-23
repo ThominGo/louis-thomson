@@ -139,7 +139,8 @@ button.row{all:unset;box-sizing:border-box;display:flex;align-items:baseline;gap
 .sec p,.intro,.lead{margin:0;font-size:16px;line-height:1.2}
 .bioHead{display:flex;flex-direction:column;gap:0;padding-right:120px}
 .bio{gap:40px}
-.row.kv .c3{flex:1;width:auto}
+.row.kv .c3{flex:1;width:auto;max-width:none!important}
+.row.kv .c1{flex:none}
 h3.lbl2{margin:0}
 /* CTA */
 .cta{all:unset;display:block;cursor:pointer;box-sizing:border-box;width:100%;background:var(--black);color:var(--white);border-radius:8px;padding:4px 0;text-align:center}
@@ -267,7 +268,7 @@ canvas.dotbg{position:absolute;inset:0;width:100%;height:100%;border-radius:inhe
 .mmenu{position:fixed;inset:0;z-index:19;display:flex;flex-direction:column;justify-content:space-between;gap:32px;box-sizing:border-box;padding:calc(96px + env(safe-area-inset-top,0px)) 16px calc(24px + env(safe-area-inset-bottom,0px));background:rgba(246,246,244,.88);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px);opacity:0;visibility:hidden;transition:opacity .45s,visibility 0s .45s;overflow-y:auto}
 .mmenu.open{opacity:1;visibility:visible;transition:opacity .45s}
 .mm-nav{display:flex;flex-direction:column}
-.mm-nav button{all:unset;cursor:pointer;display:flex;justify-content:space-between;align-items:center;padding:16px 0;border-bottom:1px solid var(--line);font-family:var(--f-display);font-size:clamp(32px,10vw,46px);line-height:1.05;text-transform:uppercase;letter-spacing:-.01em;color:var(--black);opacity:0;transform:translateY(16px);transition:transform .55s cubic-bezier(.2,.7,.2,1),opacity .55s,color .2s}
+.mm-nav button{all:unset;cursor:pointer;display:flex;justify-content:space-between;align-items:center;padding:16px 0;border-bottom:1px solid var(--line);font-family:var(--f-body);font-weight:500;font-size:clamp(30px,9vw,42px);line-height:1.1;letter-spacing:-.02em;color:var(--black);opacity:0;transform:translateY(16px);transition:transform .55s cubic-bezier(.2,.7,.2,1),opacity .55s,color .2s}
 .mm-nav button:first-child{border-top:1px solid var(--line)}
 .mm-nav button::after{content:"→";font-family:var(--f-body);font-size:20px;color:var(--muted)}
 .mm-nav button[aria-current="true"],.mm-nav button:hover{color:var(--orange)}
@@ -303,7 +304,7 @@ body[data-bg="trame"] .grade{background:linear-gradient(to top,var(--orange) 8%,
   body.points .haze{opacity:.4}
   .pill{gap:10px;padding:8px 12px}
   .pill button{font-size:14px}
-  .panel{top:auto;height:min(60%,600px);width:100%}
+  .panel{top:auto;height:80%;height:80dvh;width:100%}
   .sheet{transform:translateY(calc(100% + 32px));padding:20px}
   .row .c1{width:72px}
   .row .c3{width:auto;max-width:42%}
@@ -1569,7 +1570,7 @@ const UP = new THREE.Vector3(0,1,0);
 function region(id){
   const Wd = innerWidth, Hd = innerHeight;
   if (id === 'home') return { x0:-.96, x1:.96, y0:-1 + 2*(isMobile()? 84 : 70)/Hd, y1:1 - 2*(isMobile()? 76 : 72)/Hd };
-  if (isMobile()) { const sheet = Math.min(Hd*.6, 600); return { x0:-.92, x1:.92, y0:-1 + 2*(sheet+16)/Hd, y1:1 - 2*96/Hd }; }
+  if (isMobile()) { const sheet = Hd*.8; return { x0:-.92, x1:.92, y0:-1 + 2*(sheet+12)/Hd, y1:1 - 2*78/Hd }; }
   const pw = Math.min(633, Wd*.46);
   return { x0:-1 + 48/Wd, x1:1 - 2*(pw+24)/Wd, y0:-1 + 2*70/Hd, y1:1 - 2*80/Hd };
 }
